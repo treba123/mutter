@@ -455,16 +455,16 @@ meta_session_controller_new (GError **error)
   if (!seat_proxy)
     goto fail;
 
-  if (!get_kms_fd (session_proxy, seat_id, &kms_fd, error))
-    goto fail;
-
-  free (seat_id);
-
   self = g_slice_new0 (MetaSessionController);
   self->session_proxy = session_proxy;
   self->seat_proxy = seat_proxy;
 
   self->session_active = TRUE;
+
+  if (!get_kms_fd (session_proxy, seat_id, &kms_fd, error))
+    goto fail;
+
+  free (seat_id);
 
   clutter_egl_set_kms_fd (kms_fd);
   clutter_evdev_set_device_callbacks (on_evdev_device_open,
@@ -479,6 +479,10 @@ meta_session_controller_new (GError **error)
     login1_session_call_release_control_sync (session_proxy, NULL, NULL);
   g_clear_object (&session_proxy);
   g_clear_object (&seat_proxy);
+
+  if (self)
+    g_slice_free (MetaSessionController, self);
+
   free (seat_id);
 
   return NULL;
