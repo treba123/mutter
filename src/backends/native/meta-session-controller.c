@@ -384,6 +384,12 @@ meta_session_controller_get_seat_id (MetaSessionController  *self)
   return self->seat_id;
 }
 
+MetaNativeRenderer *
+meta_session_controller_get_renderer (MetaSessionController *self)
+{
+  return self->renderer;
+}
+
 void
 meta_session_controller_free (MetaSessionController *self)
 {
