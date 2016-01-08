@@ -185,6 +185,12 @@ meta_native_renderer_unpause (MetaNativeRenderer *self)
   meta_cursor_renderer_native_force_update (META_CURSOR_RENDERER_NATIVE (renderer));
 }
 
+int
+meta_native_renderer_get_modesetting_fd (MetaNativeRenderer *self)
+{
+  return self->modesetting_fd;
+}
+
 gboolean
 meta_native_renderer_start (MetaNativeRenderer  *self,
                             GError             **error)

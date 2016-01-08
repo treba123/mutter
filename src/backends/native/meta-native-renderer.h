@@ -41,4 +41,6 @@ gboolean             meta_native_renderer_start (MetaNativeRenderer  *self,
 void                 meta_native_renderer_pause (MetaNativeRenderer *self);
 void                 meta_native_renderer_unpause (MetaNativeRenderer *self);
 
+int                  meta_native_renderer_get_modesetting_fd (MetaNativeRenderer *self);
+
 #endif /* META_NATIVE_RENDERER_H */
