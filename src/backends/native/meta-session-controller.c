@@ -42,14 +42,15 @@
 #include "dbus-utils.h"
 #include "meta-dbus-login1.h"
 
-#include "backends/meta-backend-private.h"
-#include "meta-cursor-renderer-native.h"
+#include "meta-native-renderer.h"
 #include "meta-idle-monitor-native.h"
 
 struct _MetaSessionController
 {
   Login1Session *session_proxy;
   Login1Seat *seat_proxy;
+  MetaNativeRenderer *renderer;
+
   char *seat_id;
 
   gboolean session_active;
@@ -103,40 +104,17 @@ get_seat_proxy (GCancellable *cancellable,
 }
 
 static void
-session_unpause (void)
+session_unpause (MetaSessionController *self)
 {
-  ClutterBackend *clutter_backend;
-  CoglContext *cogl_context;
-  CoglDisplay *cogl_display;
-
-  clutter_backend = clutter_get_default_backend ();
-  cogl_context = clutter_backend_get_cogl_context (clutter_backend);
-  cogl_display = cogl_context_get_display (cogl_context);
-  cogl_kms_display_queue_modes_reset (cogl_display);
-
   clutter_evdev_reclaim_devices ();
-  clutter_egl_thaw_master_clock ();
-
-  {
-    MetaBackend *backend = meta_get_backend ();
-    MetaCursorRenderer *renderer = meta_backend_get_cursor_renderer (backend);
-    ClutterActor *stage = meta_backend_get_stage (backend);
-
-    /* When we mode-switch back, we need to immediately queue a redraw
-     * in case nothing else queued one for us, and force the cursor to
-     * update. */
-
-    clutter_actor_queue_redraw (stage);
-    meta_cursor_renderer_native_force_update (META_CURSOR_RENDERER_NATIVE (renderer));
-    meta_idle_monitor_native_reset_idletime (meta_idle_monitor_get_core ());
-  }
+  meta_native_renderer_unpause (self->renderer);
 }
 
 static void
-session_pause (void)
+session_pause (MetaSessionController *self)
 {
   clutter_evdev_release_devices ();
-  clutter_egl_freeze_master_clock ();
+  meta_native_renderer_pause (self->renderer);
 }
 
 static gboolean
@@ -265,9 +243,9 @@ sync_active (MetaSessionController *self)
   self->session_active = active;
 
   if (active)
-    session_unpause ();
+    session_unpause (self);
   else
-    session_pause ();
+    session_pause (self);
 }
 
 static void
@@ -277,122 +255,6 @@ on_active_changed (Login1Session *session,
 {
   MetaSessionController *self = user_data;
   sync_active (self);
-}
-
-static gchar *
-get_primary_gpu_path (const gchar *seat_name)
-{
-  const gchar *subsystems[] = {"drm", NULL};
-  gchar *path = NULL;
-  GList *devices, *tmp;
-
-  GUdevClient *gudev_client = g_udev_client_new (subsystems);
-  GUdevEnumerator *enumerator = g_udev_enumerator_new (gudev_client);
-
-  g_udev_enumerator_add_match_name (enumerator, "card*");
-  g_udev_enumerator_add_match_tag (enumerator, "seat");
-
-  devices = g_udev_enumerator_execute (enumerator);
-  if (!devices)
-    goto out;
-
-  for (tmp = devices; tmp != NULL && path == NULL; tmp = tmp->next)
-    {
-      GUdevDevice *platform_device = NULL, *pci_device = NULL;
-      GUdevDevice *dev = tmp->data;
-      gint boot_vga;
-      const gchar *device_seat;
-
-      /* filter out devices that are not character device, like card0-VGA-1 */
-      if (g_udev_device_get_device_type (dev) != G_UDEV_DEVICE_TYPE_CHAR)
-        continue;
-
-      device_seat = g_udev_device_get_property (dev, "ID_SEAT");
-      if (!device_seat)
-        {
-          /* when ID_SEAT is not set, it means seat0 */
-          device_seat = "seat0";
-        }
-      else if (g_strcmp0 (device_seat, "seat0") != 0)
-        {
-          /* if the device has been explicitly assigned other seat
-           * than seat0, it is probably the right device to use */
-          path = g_strdup (g_udev_device_get_device_file (dev));
-          break;
-        }
-
-      /* skip devices that do not belong to our seat */
-      if (g_strcmp0 (seat_name, device_seat))
-        continue;
-
-      platform_device = g_udev_device_get_parent_with_subsystem (dev, "platform", NULL);
-      pci_device = g_udev_device_get_parent_with_subsystem (dev, "pci", NULL);
-
-      if (platform_device != NULL)
-        {
-          path = g_strdup (g_udev_device_get_device_file (dev));
-        }
-      else if (pci_device != NULL)
-        {
-          /* get value of boot_vga attribute or 0 if the device has no boot_vga */
-          boot_vga = g_udev_device_get_sysfs_attr_as_int (pci_device, "boot_vga");
-          if (boot_vga == 1)
-            {
-              /* found the boot_vga device */
-              path = g_strdup (g_udev_device_get_device_file (dev));
-            }
-        }
-
-      g_object_unref (platform_device);
-      g_object_unref (pci_device);
-    }
-
-  g_list_free_full (devices, g_object_unref);
-
-out:
-  g_object_unref (enumerator);
-  g_object_unref (gudev_client);
-
-  return path;
-}
-
-static gboolean
-get_kms_fd (Login1Session *session_proxy,
-            const gchar   *seat_id,
-            int           *fd_out,
-            GError       **error)
-{
-  int major, minor;
-  int fd;
-
-  g_autofree gchar *path = get_primary_gpu_path (seat_id);
-  if (!path)
-    {
-      g_set_error (error,
-                   G_IO_ERROR,
-                   G_IO_ERROR_NOT_FOUND,
-                   "could not find drm kms device");
-      return FALSE;
-    }
-
-  if (!get_device_info_from_path (path, &major, &minor))
-    {
-      g_set_error (error,
-                   G_IO_ERROR,
-                   G_IO_ERROR_NOT_FOUND,
-                   "Could not get device info for path %s: %m", path);
-      return FALSE;
-    }
-
-  if (!take_device (session_proxy, major, minor, &fd, NULL, error))
-    {
-      g_prefix_error (error, "Could not open DRM device: ");
-      return FALSE;
-    }
-
-  *fd_out = fd;
-
-  return TRUE;
 }
 
 static gchar *
@@ -444,7 +306,7 @@ meta_session_controller_take_device (MetaSessionController  *self,
       return FALSE;
     }
 
-  if (!take_device (self->session_proxy, major, minor, &device_fd, cancellable, error))
+  if (!take_device (self->session_proxy, major, minor, device_fd, cancellable, error))
     return FALSE;
 
   return TRUE;
@@ -456,9 +318,9 @@ meta_session_controller_new (GError **error)
   MetaSessionController *self = NULL;
   Login1Session *session_proxy = NULL;
   Login1Seat *seat_proxy = NULL;
+  MetaNativeRenderer *renderer;
   char *seat_id = NULL;
   gboolean have_control = FALSE;
-  int kms_fd;
 
   session_proxy = get_session_proxy (NULL, error);
   if (!session_proxy)
@@ -487,11 +349,13 @@ meta_session_controller_new (GError **error)
 
   self->session_active = TRUE;
 
-  if (!get_kms_fd (session_proxy, seat_id, &kms_fd, error))
+  renderer = meta_native_renderer_new (self);
+
+  if (!meta_native_renderer_start (renderer, error))
     goto fail;
 
+  self->renderer = renderer;
 
-  clutter_egl_set_kms_fd (kms_fd);
   clutter_evdev_set_device_callbacks (on_evdev_device_open,
                                       on_evdev_device_close,
                                       self);
@@ -504,6 +368,7 @@ meta_session_controller_new (GError **error)
     login1_session_call_release_control_sync (session_proxy, NULL, NULL);
   g_clear_object (&session_proxy);
   g_clear_object (&seat_proxy);
+  g_clear_object (&renderer);
 
   if (self)
     g_slice_free (MetaSessionController, self);
