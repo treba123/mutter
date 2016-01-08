@@ -296,8 +296,8 @@ libmutter_la_SOURCES +=					\
 	backends/native/meta-input-settings-native.h	\
 	backends/native/meta-monitor-manager-kms.c	\
 	backends/native/meta-monitor-manager-kms.h	\
-	backends/native/meta-launcher.c			\
-	backends/native/meta-launcher.h			\
+	backends/native/meta-session-controller.c	\
+	backends/native/meta-session-controller.h	\
 	backends/native/dbus-utils.c			\
 	backends/native/dbus-utils.h			\
 	$(NULL)

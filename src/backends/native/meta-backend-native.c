@@ -35,13 +35,13 @@
 #include "meta-idle-monitor-native.h"
 #include "meta-monitor-manager-kms.h"
 #include "meta-cursor-renderer-native.h"
-#include "meta-launcher.h"
+#include "meta-session-controller.h"
 
 #include <stdlib.h>
 
 struct _MetaBackendNativePrivate
 {
-  MetaLauncher *launcher;
+  MetaSessionController *session_controller;
   MetaBarrierManagerNative *barrier_manager;
   UpClient *up_client;
   guint sleep_signal_id;
@@ -58,7 +58,7 @@ meta_backend_native_finalize (GObject *object)
   MetaBackendNative *native = META_BACKEND_NATIVE (object);
   MetaBackendNativePrivate *priv = meta_backend_native_get_instance_private (native);
 
-  meta_launcher_free (priv->launcher);
+  meta_session_controller_free (priv->session_controller);
 
   g_object_unref (priv->up_client);
   if (priv->sleep_signal_id)
@@ -331,8 +331,8 @@ meta_backend_native_init (MetaBackendNative *native)
   MetaBackendNativePrivate *priv = meta_backend_native_get_instance_private (native);
   GError *error = NULL;
 
-  priv->launcher = meta_launcher_new (&error);
-  if (priv->launcher == NULL)
+  priv->session_controller = meta_session_controller_new (&error);
+  if (priv->session_controller == NULL)
     {
       g_warning ("Can't initialize KMS backend: %s\n", error->message);
       exit (1);
@@ -358,7 +358,7 @@ meta_activate_vt (int vt, GError **error)
   MetaBackendNative *native = META_BACKEND_NATIVE (backend);
   MetaBackendNativePrivate *priv = meta_backend_native_get_instance_private (native);
 
-  return meta_launcher_activate_vt (priv->launcher, vt, error);
+  return meta_session_controller_activate_vt (priv->session_controller, vt, error);
 }
 
 MetaBarrierManagerNative *
@@ -390,7 +390,7 @@ meta_activate_session (void)
   MetaBackendNative *native = META_BACKEND_NATIVE (backend);
   MetaBackendNativePrivate *priv = meta_backend_native_get_instance_private (native);
 
-  if (!meta_launcher_activate_session (priv->launcher, &error))
+  if (!meta_session_controller_activate_session (priv->session_controller, &error))
     {
       g_warning ("Could not activate session: %s\n", error->message);
       g_error_free (error);

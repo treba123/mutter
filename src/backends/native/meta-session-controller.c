@@ -19,7 +19,7 @@
 
 #include "config.h"
 
-#include "meta-launcher.h"
+#include "meta-session-controller.h"
 
 #include <gio/gunixfdlist.h>
 
@@ -46,7 +46,7 @@
 #include "meta-cursor-renderer-native.h"
 #include "meta-idle-monitor-native.h"
 
-struct _MetaLauncher
+struct _MetaSessionController
 {
   Login1Session *session_proxy;
   Login1Seat *seat_proxy;
@@ -209,7 +209,7 @@ on_evdev_device_open (const char  *path,
                       gpointer     user_data,
                       GError     **error)
 {
-  MetaLauncher *self = user_data;
+  MetaSessionController *self = user_data;
   int fd;
   int major, minor;
 
@@ -232,7 +232,7 @@ static void
 on_evdev_device_close (int      fd,
                        gpointer user_data)
 {
-  MetaLauncher *self = user_data;
+  MetaSessionController *self = user_data;
   int major, minor;
   GError *error = NULL;
 
@@ -254,7 +254,7 @@ out:
 }
 
 static void
-sync_active (MetaLauncher *self)
+sync_active (MetaSessionController *self)
 {
   gboolean active = login1_session_get_active (LOGIN1_SESSION (self->session_proxy));
 
@@ -274,7 +274,7 @@ on_active_changed (Login1Session *session,
                    GParamSpec    *pspec,
                    gpointer       user_data)
 {
-  MetaLauncher *self = user_data;
+  MetaSessionController *self = user_data;
   sync_active (self);
 }
 
@@ -425,10 +425,10 @@ get_seat_id (GError **error)
   return seat_id;
 }
 
-MetaLauncher *
-meta_launcher_new (GError **error)
+MetaSessionController *
+meta_session_controller_new (GError **error)
 {
-  MetaLauncher *self = NULL;
+  MetaSessionController *self = NULL;
   Login1Session *session_proxy = NULL;
   Login1Seat *seat_proxy = NULL;
   char *seat_id = NULL;
@@ -460,7 +460,7 @@ meta_launcher_new (GError **error)
 
   free (seat_id);
 
-  self = g_slice_new0 (MetaLauncher);
+  self = g_slice_new0 (MetaSessionController);
   self->session_proxy = session_proxy;
   self->seat_proxy = seat_proxy;
 
@@ -485,28 +485,28 @@ meta_launcher_new (GError **error)
 }
 
 void
-meta_launcher_free (MetaLauncher *self)
+meta_session_controller_free (MetaSessionController *self)
 {
   g_object_unref (self->seat_proxy);
   g_object_unref (self->session_proxy);
-  g_slice_free (MetaLauncher, self);
+  g_slice_free (MetaSessionController, self);
 }
 
 gboolean
-meta_launcher_activate_session (MetaLauncher  *launcher,
-                                GError       **error)
+meta_session_controller_activate_session (MetaSessionController  *session_controller,
+                                          GError                **error)
 {
-  if (!login1_session_call_activate_sync (launcher->session_proxy, NULL, error))
+  if (!login1_session_call_activate_sync (session_controller->session_proxy, NULL, error))
     return FALSE;
 
-  sync_active (launcher);
+  sync_active (session_controller);
   return TRUE;
 }
 
 gboolean
-meta_launcher_activate_vt (MetaLauncher  *launcher,
-                           signed char    vt,
-                           GError       **error)
+meta_session_controller_activate_vt (MetaSessionController  *session_controller,
+                                     signed char             vt,
+                                     GError                **error)
 {
-  return login1_seat_call_switch_to_sync (launcher->seat_proxy, vt, NULL, error);
+  return login1_seat_call_switch_to_sync (session_controller->seat_proxy, vt, NULL, error);
 }
