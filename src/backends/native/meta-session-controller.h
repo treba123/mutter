@@ -20,7 +20,7 @@
 #ifndef META_SESSION_CONTROLLER_H
 #define META_SESSION_CONTROLLER_H
 
-#include <glib-object.h>
+#include <gio/gio.h>
 
 typedef struct _MetaSessionController MetaSessionController;
 
@@ -32,6 +32,12 @@ gboolean               meta_session_controller_activate_session (MetaSessionCont
 
 gboolean               meta_session_controller_activate_vt      (MetaSessionController  *self,
                                                                  signed char             vt,
+                                                                 GError                **error);
+
+gboolean               meta_session_controller_take_device      (MetaSessionController  *self,
+                                                                 const char             *device_path,
+                                                                 GCancellable           *cancellable,
+                                                                 int                    *device_fd,
                                                                  GError                **error);
 
 #endif /* META_SESSION_CONTROLLER_H */

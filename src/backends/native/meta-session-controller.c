@@ -425,6 +425,30 @@ get_seat_id (GError **error)
   return seat_id;
 }
 
+gboolean
+meta_session_controller_take_device (MetaSessionController  *self,
+                                     const char             *device_path,
+                                     GCancellable           *cancellable,
+                                     int                    *device_fd,
+                                     GError                **error)
+{
+  int major, minor;
+
+  if (!get_device_info_from_path (device_path, &major, &minor))
+    {
+      g_set_error (error,
+                   G_IO_ERROR,
+                   G_IO_ERROR_NOT_FOUND,
+                   "Could not access device %s", device_path);
+      return FALSE;
+    }
+
+  if (!take_device (self->session_proxy, major, minor, &device_fd, cancellable, error))
+    return FALSE;
+
+  return TRUE;
+}
+
 MetaSessionController *
 meta_session_controller_new (GError **error)
 {
