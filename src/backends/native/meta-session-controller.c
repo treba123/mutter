@@ -50,6 +50,7 @@ struct _MetaSessionController
 {
   Login1Session *session_proxy;
   Login1Seat *seat_proxy;
+  char *seat_id;
 
   gboolean session_active;
 };
@@ -482,13 +483,13 @@ meta_session_controller_new (GError **error)
   self = g_slice_new0 (MetaSessionController);
   self->session_proxy = session_proxy;
   self->seat_proxy = seat_proxy;
+  self->seat_id = seat_id;
 
   self->session_active = TRUE;
 
   if (!get_kms_fd (session_proxy, seat_id, &kms_fd, error))
     goto fail;
 
-  free (seat_id);
 
   clutter_egl_set_kms_fd (kms_fd);
   clutter_evdev_set_device_callbacks (on_evdev_device_open,
@@ -512,11 +513,18 @@ meta_session_controller_new (GError **error)
   return NULL;
 }
 
+const char *
+meta_session_controller_get_seat_id (MetaSessionController  *self)
+{
+  return self->seat_id;
+}
+
 void
 meta_session_controller_free (MetaSessionController *self)
 {
   g_object_unref (self->seat_proxy);
   g_object_unref (self->session_proxy);
+  free (self->seat_id);
   g_slice_free (MetaSessionController, self);
 }
 
