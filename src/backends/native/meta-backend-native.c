@@ -245,7 +245,10 @@ meta_backend_native_create_monitor_manager (MetaBackend *backend)
 static MetaCursorRenderer *
 meta_backend_native_create_cursor_renderer (MetaBackend *backend)
 {
-  return g_object_new (META_TYPE_CURSOR_RENDERER_NATIVE, NULL);
+  MetaBackendNativePrivate *priv = meta_backend_native_get_instance_private (META_BACKEND_NATIVE (backend));
+  MetaNativeRenderer *renderer = meta_session_controller_get_renderer (priv->session_controller);
+
+  return g_object_new (META_TYPE_CURSOR_RENDERER_NATIVE, "renderer", renderer, NULL);
 }
 
 static void

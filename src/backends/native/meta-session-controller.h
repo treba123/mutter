@@ -22,10 +22,9 @@
 
 #include <gio/gio.h>
 
-#include "backends/native/meta-session-controller.h"
-#include "backends/native/meta-native-renderer.h"
-
 typedef struct _MetaSessionController MetaSessionController;
+
+#include "backends/native/meta-native-renderer.h"
 
 MetaSessionController *meta_session_controller_new              (GError                **error);
 const char            *meta_session_controller_get_seat_id      (MetaSessionController  *self);

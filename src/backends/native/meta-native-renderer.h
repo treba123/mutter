@@ -26,6 +26,9 @@
 #define META_NATIVE_RENDERER_H
 
 #include <glib-object.h>
+
+typedef struct _MetaNativeRenderer MetaNativeRenderer;
+
 #include "backends/native/meta-session-controller.h"
 
 #define META_TYPE_NATIVE_RENDERER (meta_native_renderer_get_type ())

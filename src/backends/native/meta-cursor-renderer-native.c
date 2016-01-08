@@ -34,6 +34,7 @@
 #include <meta/util.h>
 #include <meta/meta-backend.h>
 
+#include "meta-native-renderer.h"
 #include "meta-monitor-manager-private.h"
 #include "meta/boxes.h"
 
@@ -66,7 +67,7 @@ struct _MetaCursorRendererNativePrivate
   MetaCursorSprite *last_cursor;
   guint animation_timeout_id;
 
-  int drm_fd;
+  MetaNativeRenderer *renderer;
   struct gbm_device *gbm;
 
   uint64_t cursor_width;
@@ -88,6 +89,11 @@ typedef struct _MetaCursorNativePrivate
   struct gbm_bo *bos[HW_CURSOR_BUFFER_COUNT];
 } MetaCursorNativePrivate;
 
+enum
+{
+  PROP_RENDERER = 1,
+};
+
 G_DEFINE_TYPE_WITH_PRIVATE (MetaCursorRendererNative, meta_cursor_renderer_native, META_TYPE_CURSOR_RENDERER);
 
 static MetaCursorNativePrivate *
@@ -98,6 +104,8 @@ meta_cursor_renderer_native_finalize (GObject *object)
 {
   MetaCursorRendererNative *renderer = META_CURSOR_RENDERER_NATIVE (object);
   MetaCursorRendererNativePrivate *priv = meta_cursor_renderer_native_get_instance_private (renderer);
+
+  g_clear_object (&priv->renderer);
 
   if (priv->animation_timeout_id)
     g_source_remove (priv->animation_timeout_id);
@@ -164,6 +172,7 @@ set_crtc_cursor (MetaCursorRendererNative *native,
                  gboolean                  force)
 {
   MetaCursorRendererNativePrivate *priv = meta_cursor_renderer_native_get_instance_private (native);
+  int drm_fd = meta_native_renderer_get_modesetting_fd (priv->renderer);
 
   if (cursor_sprite)
     {
@@ -186,7 +195,7 @@ set_crtc_cursor (MetaCursorRendererNative *native,
       handle = gbm_bo_get_handle (bo);
       meta_cursor_sprite_get_hotspot (cursor_sprite, &hot_x, &hot_y);
 
-      drmModeSetCursor2 (priv->drm_fd, crtc->crtc_id, handle.u32,
+      drmModeSetCursor2 (drm_fd, crtc->crtc_id, handle.u32,
                          priv->cursor_width, priv->cursor_height, hot_x, hot_y);
 
       if (cursor_priv->pending_bo_state == META_CURSOR_GBM_BO_STATE_SET)
@@ -200,7 +209,7 @@ set_crtc_cursor (MetaCursorRendererNative *native,
     {
       if (force || crtc->cursor_renderer_private != NULL)
         {
-          drmModeSetCursor2 (priv->drm_fd, crtc->crtc_id, 0, 0, 0, 0, 0);
+          drmModeSetCursor2 (drm_fd, crtc->crtc_id, 0, 0, 0, 0, 0);
           crtc->cursor_renderer_private = NULL;
         }
     }
@@ -217,6 +226,7 @@ update_hw_cursor (MetaCursorRendererNative *native,
   MetaCRTC *crtcs;
   unsigned int i, n_crtcs;
   MetaRectangle rect;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (priv->renderer);
 
   monitors = meta_monitor_manager_get ();
   meta_monitor_manager_get_resources (monitors, NULL, NULL, &crtcs, &n_crtcs, NULL, NULL);
@@ -245,7 +255,7 @@ update_hw_cursor (MetaCursorRendererNative *native,
 
       if (crtc_cursor)
         {
-          drmModeMoveCursor (priv->drm_fd, crtcs[i].crtc_id,
+          drmModeMoveCursor (drm_fd, crtcs[i].crtc_id,
                              rect.x - crtc_rect->x,
                              rect.y - crtc_rect->y);
         }
@@ -620,11 +630,54 @@ meta_cursor_renderer_native_realize_cursor_from_xcursor (MetaCursorRenderer *ren
 }
 
 static void
+meta_cursor_renderer_native_set_property (GObject      *object,
+                                          guint         prop_id,
+                                          const GValue *value,
+                                          GParamSpec   *pspec)
+{
+  MetaCursorRendererNative *self = META_CURSOR_RENDERER_NATIVE (object);
+  MetaCursorRendererNativePrivate *priv = meta_cursor_renderer_native_get_instance_private (self);
+
+  switch (prop_id)
+    {
+    case PROP_RENDERER:
+      priv->renderer = g_value_dup_object (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+    }
+}
+
+static void
+meta_cursor_renderer_native_get_property (GObject      *object,
+                                          guint         prop_id,
+                                          GValue       *value,
+                                          GParamSpec   *pspec)
+{
+  MetaCursorRendererNative *self = META_CURSOR_RENDERER_NATIVE (object);
+  MetaCursorRendererNativePrivate *priv = meta_cursor_renderer_native_get_instance_private (self);
+
+  switch (prop_id)
+    {
+    case PROP_RENDERER:
+      g_value_set_object (value, priv->renderer);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+    }
+}
+
+static void
 meta_cursor_renderer_native_class_init (MetaCursorRendererNativeClass *klass)
 {
   MetaCursorRendererClass *renderer_class = META_CURSOR_RENDERER_CLASS (klass);
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
+  GParamSpec   *param_spec;
 
+  object_class->get_property = meta_cursor_renderer_native_get_property;
+  object_class->set_property = meta_cursor_renderer_native_set_property;
   object_class->finalize = meta_cursor_renderer_native_finalize;
   renderer_class->update_cursor = meta_cursor_renderer_native_update_cursor;
 #ifdef HAVE_WAYLAND
@@ -635,6 +688,13 @@ meta_cursor_renderer_native_class_init (MetaCursorRendererNativeClass *klass)
     meta_cursor_renderer_native_realize_cursor_from_xcursor;
 
   quark_cursor_sprite = g_quark_from_static_string ("-meta-cursor-native");
+
+  param_spec = g_param_spec_object ("renderer",
+                                    "renderer",
+                                    "renderer",
+                                    META_TYPE_NATIVE_RENDERER,
+                                    G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+  g_object_class_install_property (object_class, PROP_RENDERER, param_spec);
 }
 
 static void
@@ -657,7 +717,6 @@ static void
 meta_cursor_renderer_native_init (MetaCursorRendererNative *native)
 {
   MetaCursorRendererNativePrivate *priv = meta_cursor_renderer_native_get_instance_private (native);
-  CoglContext *ctx = clutter_backend_get_cogl_context (clutter_get_default_backend ());
   MetaMonitorManager *monitors;
 
   monitors = meta_monitor_manager_get ();
@@ -667,13 +726,12 @@ meta_cursor_renderer_native_init (MetaCursorRendererNative *native)
 #if defined(CLUTTER_WINDOWING_EGL)
   if (clutter_check_windowing_backend (CLUTTER_WINDOWING_EGL))
     {
-      CoglRenderer *cogl_renderer = cogl_display_get_renderer (cogl_context_get_display (ctx));
-      priv->drm_fd = cogl_kms_renderer_get_kms_fd (cogl_renderer);
-      priv->gbm = gbm_create_device (priv->drm_fd);
+      int drm_fd = meta_native_renderer_get_modesetting_fd (priv->renderer);
+      priv->gbm = gbm_create_device (drm_fd);
 
       uint64_t width, height;
-      if (drmGetCap (priv->drm_fd, DRM_CAP_CURSOR_WIDTH, &width) == 0 &&
-          drmGetCap (priv->drm_fd, DRM_CAP_CURSOR_HEIGHT, &height) == 0)
+      if (drmGetCap (drm_fd, DRM_CAP_CURSOR_WIDTH, &width) == 0 &&
+          drmGetCap (drm_fd, DRM_CAP_CURSOR_HEIGHT, &height) == 0)
         {
           priv->cursor_width = width;
           priv->cursor_height = height;
