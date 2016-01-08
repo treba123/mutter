@@ -239,7 +239,10 @@ meta_backend_native_create_idle_monitor (MetaBackend *backend,
 static MetaMonitorManager *
 meta_backend_native_create_monitor_manager (MetaBackend *backend)
 {
-  return g_object_new (META_TYPE_MONITOR_MANAGER_KMS, NULL);
+  MetaBackendNativePrivate *priv = meta_backend_native_get_instance_private (META_BACKEND_NATIVE (backend));
+  MetaNativeRenderer *renderer = meta_session_controller_get_renderer (priv->session_controller);
+
+  return g_object_new (META_TYPE_MONITOR_MANAGER_KMS, "renderer", renderer, NULL);
 }
 
 static MetaCursorRenderer *

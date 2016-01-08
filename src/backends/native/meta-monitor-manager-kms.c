@@ -25,6 +25,7 @@
 
 #include "meta-monitor-manager-kms.h"
 #include "meta-monitor-config.h"
+#include "meta-native-renderer.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -77,7 +78,7 @@ struct _MetaMonitorManagerKms
 {
   MetaMonitorManager parent_instance;
 
-  int fd;
+  MetaNativeRenderer *renderer;
 
   drmModeConnector **connectors;
   unsigned int       n_connectors;
@@ -90,6 +91,11 @@ struct _MetaMonitorManagerKms
 struct _MetaMonitorManagerKmsClass
 {
   MetaMonitorManagerClass parent_class;
+};
+
+enum
+{
+  PROP_RENDERER = 1,
 };
 
 G_DEFINE_TYPE (MetaMonitorManagerKms, meta_monitor_manager_kms, META_TYPE_MONITOR_MANAGER);
@@ -213,7 +219,8 @@ find_connector_properties (MetaMonitorManagerKms *manager_kms,
   output_kms->suggested_y = -1;
   for (i = 0; i < output_kms->connector->count_props; i++)
     {
-      drmModePropertyPtr prop = drmModeGetProperty (manager_kms->fd, output_kms->connector->props[i]);
+      int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
+      drmModePropertyPtr prop = drmModeGetProperty (drm_fd, output_kms->connector->props[i]);
       if (!prop)
         continue;
 
@@ -245,16 +252,17 @@ find_crtc_properties (MetaMonitorManagerKms *manager_kms,
   MetaCRTCKms *crtc_kms;
   drmModeObjectPropertiesPtr props;
   size_t i;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
   crtc_kms = meta_crtc->driver_private;
 
-  props = drmModeObjectGetProperties (manager_kms->fd, meta_crtc->crtc_id, DRM_MODE_OBJECT_CRTC);
+  props = drmModeObjectGetProperties (drm_fd, meta_crtc->crtc_id, DRM_MODE_OBJECT_CRTC);
   if (!props)
     return;
 
   for (i = 0; i < props->count_props; i++)
     {
-      drmModePropertyPtr prop = drmModeGetProperty (manager_kms->fd, props->props[i]);
+      drmModePropertyPtr prop = drmModeGetProperty (drm_fd, props->props[i]);
       if (!prop)
         continue;
 
@@ -275,11 +283,12 @@ read_output_edid (MetaMonitorManagerKms *manager_kms,
 {
   MetaOutputKms *output_kms = output->driver_private;
   drmModePropertyBlobPtr edid_blob = NULL;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
   if (output_kms->edid_blob_id == 0)
     return NULL;
 
-  edid_blob = drmModeGetPropertyBlob (manager_kms->fd, output_kms->edid_blob_id);
+  edid_blob = drmModeGetPropertyBlob (drm_fd, output_kms->edid_blob_id);
   if (!edid_blob)
     {
       meta_warning ("Failed to read EDID of output %s: %s\n", output->name, strerror(errno));
@@ -304,12 +313,13 @@ output_get_tile_info (MetaMonitorManagerKms *manager_kms,
 {
   MetaOutputKms *output_kms = output->driver_private;
   drmModePropertyBlobPtr tile_blob = NULL;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
   int ret;
 
   if (output_kms->tile_blob_id == 0)
     return FALSE;
 
-  tile_blob = drmModeGetPropertyBlob (manager_kms->fd, output_kms->tile_blob_id);
+  tile_blob = drmModeGetPropertyBlob (drm_fd, output_kms->tile_blob_id);
   if (!tile_blob)
     {
       meta_warning ("Failed to read TILE of output %s: %s\n", output->name, strerror(errno));
@@ -441,13 +451,14 @@ find_property_index (MetaMonitorManager         *manager,
                      drmModePropertyPtr         *found)
 {
   MetaMonitorManagerKms *manager_kms = META_MONITOR_MANAGER_KMS (manager);
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
   unsigned int i;
 
   for (i = 0; i < props->count_props; i++)
     {
       drmModePropertyPtr prop;
 
-      prop = drmModeGetProperty (manager_kms->fd, props->props[i]);
+      prop = drmModeGetProperty (drm_fd, props->props[i]);
       if (!prop)
         continue;
 
@@ -517,11 +528,12 @@ init_crtc_rotations (MetaMonitorManager *manager,
   drmModePlaneRes *planes;
   drmModePlane *drm_plane;
   MetaCRTCKms *crtc_kms;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
   unsigned int i;
 
   crtc_kms = crtc->driver_private;
 
-  planes = drmModeGetPlaneResources(manager_kms->fd);
+  planes = drmModeGetPlaneResources(drm_fd);
   if (planes == NULL)
     return;
 
@@ -529,14 +541,14 @@ init_crtc_rotations (MetaMonitorManager *manager,
     {
       drmModePropertyPtr prop;
 
-      drm_plane = drmModeGetPlane (manager_kms->fd, planes->planes[i]);
+      drm_plane = drmModeGetPlane (drm_fd, planes->planes[i]);
 
       if (!drm_plane)
         continue;
 
       if ((drm_plane->possible_crtcs & (1 << idx)))
         {
-          props = drmModeObjectGetProperties (manager_kms->fd,
+          props = drmModeObjectGetProperties (drm_fd,
                                               drm_plane->plane_id,
                                               DRM_MODE_OBJECT_PLANE);
 
@@ -579,8 +591,9 @@ meta_monitor_manager_kms_read_current (MetaMonitorManager *manager)
   int width, height;
   MetaOutput *old_outputs;
   unsigned int n_old_outputs;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
-  resources = drmModeGetResources(manager_kms->fd);
+  resources = drmModeGetResources(drm_fd);
   modes = g_hash_table_new (drm_mode_hash, drm_mode_equal);
 
   manager->max_screen_width = resources->max_width;
@@ -603,7 +616,7 @@ meta_monitor_manager_kms_read_current (MetaMonitorManager *manager)
     {
       drmModeConnector *connector;
 
-      connector = drmModeGetConnector (manager_kms->fd, resources->connectors[i]);
+      connector = drmModeGetConnector (drm_fd, resources->connectors[i]);
       manager_kms->connectors[i] = connector;
 
       if (connector && connector->connection == DRM_MODE_CONNECTED)
@@ -616,7 +629,7 @@ meta_monitor_manager_kms_read_current (MetaMonitorManager *manager)
 
   encoders = g_new (drmModeEncoder *, resources->count_encoders);
   for (i = 0; i < (unsigned)resources->count_encoders; i++)
-    encoders[i] = drmModeGetEncoder (manager_kms->fd, resources->encoders[i]);
+    encoders[i] = drmModeGetEncoder (drm_fd, resources->encoders[i]);
 
   manager->n_modes = g_hash_table_size (modes);
   manager->modes = g_new0 (MetaMonitorMode, manager->n_modes);
@@ -660,7 +673,7 @@ meta_monitor_manager_kms_read_current (MetaMonitorManager *manager)
       drmModeCrtc *crtc;
       MetaCRTC *meta_crtc;
 
-      crtc = drmModeGetCrtc (manager_kms->fd, resources->crtcs[i]);
+      crtc = drmModeGetCrtc (drm_fd, resources->crtcs[i]);
 
       meta_crtc = &manager->crtcs[i];
 
@@ -767,7 +780,7 @@ meta_monitor_manager_kms_read_current (MetaMonitorManager *manager)
           crtc_mask = ~(unsigned int)0;
 	  for (j = 0; j < output_kms->n_encoders; j++)
 	    {
-              output_kms->encoders[j] = drmModeGetEncoder (manager_kms->fd, connector->encoders[j]);
+              output_kms->encoders[j] = drmModeGetEncoder (drm_fd, connector->encoders[j]);
               if (!output_kms->encoders[j])
                 continue;
 
@@ -954,6 +967,7 @@ meta_monitor_manager_kms_set_power_save_mode (MetaMonitorManager *manager,
   ClutterBackend *backend;
   CoglContext *cogl_context;
   CoglDisplay *cogl_display;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
   uint64_t state;
   unsigned i;
 
@@ -984,7 +998,7 @@ meta_monitor_manager_kms_set_power_save_mode (MetaMonitorManager *manager,
 
       if (output_kms->dpms_prop_id != 0)
         {
-          int ok = drmModeObjectSetProperty (manager_kms->fd, meta_output->winsys_id,
+          int ok = drmModeObjectSetProperty (drm_fd, meta_output->winsys_id,
                                              DRM_MODE_OBJECT_CONNECTOR,
                                              output_kms->dpms_prop_id, state);
 
@@ -1014,6 +1028,8 @@ static void
 set_underscan (MetaMonitorManagerKms *manager_kms,
                MetaOutput *output)
 {
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
+
   if (!output->crtc)
     return;
 
@@ -1024,21 +1040,21 @@ set_underscan (MetaMonitorManagerKms *manager_kms,
 
   if (output->is_underscanning)
     {
-      drmModeObjectSetProperty (manager_kms->fd, crtc->crtc_id,
+      drmModeObjectSetProperty (drm_fd, crtc->crtc_id,
                                 DRM_MODE_OBJECT_CRTC,
                                 crtc_kms->underscan_prop_id, (uint64_t) 1);
 
       if (crtc_kms->underscan_hborder_prop_id)
         {
           uint64_t value = crtc->current_mode->width * 0.05;
-          drmModeObjectSetProperty (manager_kms->fd, crtc->crtc_id,
+          drmModeObjectSetProperty (drm_fd, crtc->crtc_id,
                                     DRM_MODE_OBJECT_CRTC,
                                     crtc_kms->underscan_hborder_prop_id, value);
         }
       if (crtc_kms->underscan_vborder_prop_id)
         {
           uint64_t value = crtc->current_mode->height * 0.05;
-          drmModeObjectSetProperty (manager_kms->fd, crtc->crtc_id,
+          drmModeObjectSetProperty (drm_fd, crtc->crtc_id,
                                     DRM_MODE_OBJECT_CRTC,
                                     crtc_kms->underscan_vborder_prop_id, value);
         }
@@ -1046,7 +1062,7 @@ set_underscan (MetaMonitorManagerKms *manager_kms,
     }
   else
     {
-      drmModeObjectSetProperty (manager_kms->fd, crtc->crtc_id,
+      drmModeObjectSetProperty (drm_fd, crtc->crtc_id,
                                 DRM_MODE_OBJECT_CRTC,
                                 crtc_kms->underscan_prop_id, (uint64_t) 0);
     }
@@ -1068,6 +1084,7 @@ meta_monitor_manager_kms_apply_configuration (MetaMonitorManager *manager,
   int screen_width, screen_height;
   gboolean ok;
   GError *error;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
   cogl_crtcs = g_ptr_array_new_full (manager->n_crtcs, (GDestroyNotify)crtc_free);
   screen_width = 0; screen_height = 0;
@@ -1150,7 +1167,7 @@ meta_monitor_manager_kms_apply_configuration (MetaMonitorManager *manager,
         }
 
       if (crtc->all_transforms & (1 << crtc->transform))
-        drmModeObjectSetProperty (manager_kms->fd,
+        drmModeObjectSetProperty (drm_fd,
                                   crtc_kms->primary_plane_id,
                                   DRM_MODE_OBJECT_PLANE,
                                   crtc_kms->rotation_prop_id,
@@ -1249,15 +1266,16 @@ meta_monitor_manager_kms_get_crtc_gamma (MetaMonitorManager  *manager,
 {
   MetaMonitorManagerKms *manager_kms = META_MONITOR_MANAGER_KMS (manager);
   drmModeCrtc *kms_crtc;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
-  kms_crtc = drmModeGetCrtc (manager_kms->fd, crtc->crtc_id);
+  kms_crtc = drmModeGetCrtc (drm_fd, crtc->crtc_id);
 
   *size = kms_crtc->gamma_size;
   *red = g_new (unsigned short, *size);
   *green = g_new (unsigned short, *size);
   *blue = g_new (unsigned short, *size);
 
-  drmModeCrtcGetGamma (manager_kms->fd, crtc->crtc_id, *size, *red, *green, *blue);
+  drmModeCrtcGetGamma (drm_fd, crtc->crtc_id, *size, *red, *green, *blue);
 
   drmModeFreeCrtc (kms_crtc);
 }
@@ -1271,8 +1289,9 @@ meta_monitor_manager_kms_set_crtc_gamma (MetaMonitorManager *manager,
                                          unsigned short     *blue)
 {
   MetaMonitorManagerKms *manager_kms = META_MONITOR_MANAGER_KMS (manager);
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
-  drmModeCrtcSetGamma (manager_kms->fd, crtc->crtc_id, size, red, green, blue);
+  drmModeCrtcSetGamma (drm_fd, crtc->crtc_id, size, red, green, blue);
 }
 
 static void
@@ -1295,19 +1314,9 @@ on_uevent (GUdevClient *client,
 static void
 meta_monitor_manager_kms_init (MetaMonitorManagerKms *manager_kms)
 {
-  ClutterBackend *backend;
-  CoglContext *cogl_context;
-  CoglDisplay *cogl_display;
-  CoglRenderer *cogl_renderer;
+  int drm_fd = meta_native_renderer_get_modesetting_fd (manager_kms->renderer);
 
-  backend = clutter_get_default_backend ();
-  cogl_context = clutter_backend_get_cogl_context (backend);
-  cogl_display = cogl_context_get_display (cogl_context);
-  cogl_renderer = cogl_display_get_renderer (cogl_display);
-
-  manager_kms->fd = cogl_kms_renderer_get_kms_fd (cogl_renderer);
-
-  drmSetClientCap (manager_kms->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+  drmSetClientCap (drm_fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
 
   const char *subsystems[2] = { "drm", NULL };
   manager_kms->udev = g_udev_client_new (subsystems);
@@ -1324,6 +1333,7 @@ meta_monitor_manager_kms_dispose (GObject *object)
 
   g_clear_object (&manager_kms->udev);
   g_clear_object (&manager_kms->desktop_settings);
+  g_clear_object (&manager_kms->renderer);
 
   G_OBJECT_CLASS (meta_monitor_manager_kms_parent_class)->dispose (object);
 }
@@ -1339,12 +1349,52 @@ meta_monitor_manager_kms_finalize (GObject *object)
 }
 
 static void
+meta_monitor_manager_kms_set_property (GObject      *object,
+                                       guint         prop_id,
+                                       const GValue *value,
+                                       GParamSpec   *pspec)
+{
+  MetaMonitorManagerKms *manager_kms = META_MONITOR_MANAGER_KMS (object);
+
+  switch (prop_id)
+    {
+    case PROP_RENDERER:
+      manager_kms->renderer = g_value_dup_object (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+    }
+}
+
+static void
+meta_monitor_manager_kms_get_property (GObject      *object,
+                                       guint         prop_id,
+                                       GValue       *value,
+                                       GParamSpec   *pspec)
+{
+  MetaMonitorManagerKms *manager_kms = META_MONITOR_MANAGER_KMS (object);
+
+  switch (prop_id)
+    {
+    case PROP_RENDERER:
+      g_value_set_object (value, manager_kms->renderer);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+    }
+}
+
+static void
 meta_monitor_manager_kms_class_init (MetaMonitorManagerKmsClass *klass)
 {
   MetaMonitorManagerClass *manager_class = META_MONITOR_MANAGER_CLASS (klass);
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->dispose = meta_monitor_manager_kms_dispose;
+  object_class->set_property = meta_monitor_manager_kms_set_property;
+  object_class->get_property = meta_monitor_manager_kms_get_property;
   object_class->finalize = meta_monitor_manager_kms_finalize;
 
   manager_class->read_current = meta_monitor_manager_kms_read_current;
