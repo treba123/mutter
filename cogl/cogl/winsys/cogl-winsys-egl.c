@@ -740,6 +740,15 @@ _cogl_winsys_onscreen_bind (CoglOnscreen *onscreen)
   bind_onscreen (onscreen);
 }
 
+static void
+_cogl_winsys_wait_for_gpu (CoglOnscreen *onscreen)
+{
+  CoglFramebuffer *framebuffer = COGL_FRAMEBUFFER (onscreen);
+  CoglContext *ctx = framebuffer->context;
+
+  ctx->glFinish ();
+}
+
 #ifndef EGL_BUFFER_AGE_EXT
 #define EGL_BUFFER_AGE_EXT 0x313D
 #endif
@@ -819,6 +828,11 @@ _cogl_winsys_onscreen_swap_buffers_with_damage (CoglOnscreen *onscreen,
   _cogl_framebuffer_flush_state (COGL_FRAMEBUFFER (onscreen),
                                  COGL_FRAMEBUFFER (onscreen),
                                  COGL_FRAMEBUFFER_STATE_BIND);
+
+  /* Waiting for the GPU here lets the kernel know it should boost
+   * the GPU clock speed
+   */
+  _cogl_winsys_wait_for_gpu (onscreen);
 
   if (n_rectangles && egl_renderer->pf_eglSwapBuffersWithDamage)
     {
