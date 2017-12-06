@@ -784,7 +784,8 @@ meta_wayland_keyboard_handle_event (MetaWaylandKeyboard *keyboard,
 
   /* Synthetic key events are for autorepeat. Ignore those, as
    * autorepeat in Wayland is done on the client side. */
-  if (event->flags & CLUTTER_EVENT_FLAG_SYNTHETIC)
+  if ((event->flags & CLUTTER_EVENT_FLAG_SYNTHETIC) &&
+      !(event->flags & CLUTTER_EVENT_FLAG_INPUT_METHOD))
     return FALSE;
 
   meta_verbose ("Handling key %s event code %d\n",
