@@ -82,6 +82,8 @@ mutter_built_sources += \
 	linux-dmabuf-unstable-v1-server-protocol.h				\
 	keyboard-shortcuts-inhibit-unstable-v1-protocol.c		\
 	keyboard-shortcuts-inhibit-unstable-v1-server-protocol.h	\
+	gtk-text-input-protocol.c					\
+	gtk-text-input-server-protocol.h				\
 	$(NULL)
 endif
 
