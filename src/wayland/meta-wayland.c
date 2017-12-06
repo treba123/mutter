@@ -366,6 +366,7 @@ meta_wayland_init (void)
   meta_wayland_dma_buf_init (compositor);
   meta_wayland_keyboard_shortcuts_inhibit_init (compositor);
   meta_wayland_surface_inhibit_shortcuts_dialog_init ();
+  meta_wayland_text_input_init_global (compositor);
 
   if (!meta_xwayland_start (&compositor->xwayland_manager, compositor->wayland_display))
     g_error ("Failed to start X Wayland");
