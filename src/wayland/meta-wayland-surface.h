@@ -152,6 +152,29 @@ struct _MetaWaylandPendingState
   gboolean has_new_max_size;
   int new_max_width;
   int new_max_height;
+
+  struct {
+    gboolean changed;
+    struct {
+      uint32_t transform;
+
+      int32_t scale;
+
+      /*
+       * If src_width != wl_fixed_from_int(-1),
+       * then and only then src_* are used.
+       */
+      cairo_rectangle_int_t src_rect;
+    } buffer;
+
+    struct {
+      /*
+       * If width == -1, the size is inferred from the buffer.
+       */
+      int32_t width, height;
+    } surface;
+
+  } buffer_viewport;
 };
 
 struct _MetaWaylandDragDestFuncs
@@ -186,6 +209,7 @@ struct _MetaWaylandSurface
   int32_t offset_x, offset_y;
   GList *subsurfaces;
   GHashTable *outputs_to_destroy_notify_id;
+  struct wl_resource *viewport_resource;
 
   /* Buffer reference state. */
   struct {

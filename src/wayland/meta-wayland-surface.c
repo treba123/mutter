@@ -44,6 +44,7 @@
 #include "meta-wayland-xdg-shell.h"
 #include "meta-wayland-wl-shell.h"
 #include "meta-wayland-gtk-shell.h"
+#include "meta-wayland-viewporter.h"
 
 #include "meta-cursor-tracker-private.h"
 #include "display-private.h"
@@ -305,6 +306,49 @@ meta_wayland_surface_assign_role (MetaWaylandSurface *surface,
     }
 }
 
+static cairo_region_t *
+region_surface_to_buffer (cairo_region_t *region,
+                          int scale,
+                          cairo_rectangle_int_t viewport_rect,
+                          uint buffer_width,
+                          uint buffer_height)
+{
+  int n_rects, i;
+  cairo_rectangle_int_t *rects;
+  cairo_region_t *scaled_region;
+
+  if (scale == 1 && viewport_rect.width == 0)
+    return cairo_region_copy (region);
+
+  n_rects = cairo_region_num_rectangles (region);
+
+  rects = g_malloc (sizeof(cairo_rectangle_int_t) * n_rects);
+
+  for (i = 0; i < n_rects; i++){
+    cairo_region_get_rectangle (region, i, &rects[i]);
+
+    if(viewport_rect.width == 0){
+      rects[i].x      *= scale;
+      rects[i].y      *= scale;
+      rects[i].width  *= scale;
+      rects[i].height *= scale;
+    }
+    else{
+      rects[i].x      = floor(((float)viewport_rect.x + (float)rects[i].x * (float)viewport_rect.width * (float)scale / (float)buffer_width) * (float)scale);
+      rects[i].y      = floor(((float)viewport_rect.y + (float)rects[i].y * (float)viewport_rect.height * (float)scale / (float)buffer_height) * (float)scale);
+      rects[i].width  = ceil((float)rects[i].width * (float)viewport_rect.width * (float)scale / (float)buffer_width * (float)scale);
+      rects[i].height = ceil((float)rects[i].height * (float)viewport_rect.height * (float)scale / (float)buffer_height * (float)scale);
+    }
+  }
+
+  scaled_region = cairo_region_create_rectangles (rects, n_rects);
+
+  g_free (rects);
+
+
+  return scaled_region;
+}
+
 static void
 surface_process_damage (MetaWaylandSurface *surface,
                         cairo_region_t     *surface_region,
@@ -316,6 +360,7 @@ surface_process_damage (MetaWaylandSurface *surface,
   cairo_rectangle_int_t surface_rect;
   cairo_region_t *scaled_region;
   int i, n_rectangles;
+  cairo_rectangle_int_t vp_src_rect = surface->pending->buffer_viewport.buffer.src_rect;
 
   /* If the client destroyed the buffer it attached before committing, but
    * still posted damage, or posted damage without any buffer, don't try to
@@ -337,7 +382,11 @@ surface_process_damage (MetaWaylandSurface *surface,
 
   /* The damage region must be in the same coordinate space as the buffer,
    * i.e. scaled with surface->scale. */
-  scaled_region = meta_region_scale (surface_region, surface->scale);
+  scaled_region = region_surface_to_buffer (surface_region,
+                                            surface->scale,
+                                            vp_src_rect,
+                                            buffer_width,
+                                            buffer_height);
 
   /* Now add the buffer damage on top of the scaled damage region, as buffer
    * damage is already in that scale. */
@@ -506,6 +555,16 @@ pending_state_init (MetaWaylandPendingState *state)
   state->has_new_geometry = FALSE;
   state->has_new_min_size = FALSE;
   state->has_new_max_size = FALSE;
+
+  state->buffer_viewport.changed = FALSE;
+  state->buffer_viewport.buffer.transform = WL_OUTPUT_TRANSFORM_NORMAL;
+	state->buffer_viewport.buffer.scale = 1;
+  state->buffer_viewport.buffer.src_rect.x = 0;
+  state->buffer_viewport.buffer.src_rect.y = 0;
+  state->buffer_viewport.buffer.src_rect.width = 0;
+  state->buffer_viewport.buffer.src_rect.height = 0;
+  state->buffer_viewport.surface.width = 0;
+  state->buffer_viewport.surface.height = 0;
 }
 
 static void
@@ -558,6 +617,15 @@ move_pending_state (MetaWaylandPendingState *from,
   to->has_new_max_size = from->has_new_max_size;
   to->new_max_width = from->new_max_width;
   to->new_max_height = from->new_max_height;
+  to->buffer_viewport.changed = from->buffer_viewport.changed;
+  to->buffer_viewport.buffer.transform = from->buffer_viewport.buffer.transform;
+	to->buffer_viewport.buffer.scale = from->buffer_viewport.buffer.scale;
+  to->buffer_viewport.buffer.src_rect.x = from->buffer_viewport.buffer.src_rect.x;
+  to->buffer_viewport.buffer.src_rect.y = from->buffer_viewport.buffer.src_rect.y;
+  to->buffer_viewport.buffer.src_rect.width = from->buffer_viewport.buffer.src_rect.width;
+  to->buffer_viewport.buffer.src_rect.height = from->buffer_viewport.buffer.src_rect.height;
+  to->buffer_viewport.surface.width = from->buffer_viewport.surface.width;
+  to->buffer_viewport.surface.height = from->buffer_viewport.surface.height;
 
   wl_list_init (&to->frame_callback_list);
   wl_list_insert_list (&to->frame_callback_list, &from->frame_callback_list);
@@ -863,6 +931,12 @@ apply_pending_state (MetaWaylandSurface      *surface,
             meta_wayland_surface_ref_buffer_use_count (surface);
         }
     }
+  if (pending->buffer_viewport.changed)
+    meta_surface_actor_set_viewport (surface->surface_actor,
+                                     &pending->buffer_viewport.buffer.src_rect,
+                                     pending->buffer_viewport.surface.width,
+                                     pending->buffer_viewport.surface.height,
+                                     pending->buffer_viewport.buffer.scale);
 
 cleanup:
   /* If we have a buffer that we are not using, decrease the use count so it may
@@ -1067,8 +1141,10 @@ wl_surface_set_buffer_scale (struct wl_client *client,
                              int scale)
 {
   MetaWaylandSurface *surface = wl_resource_get_user_data (resource);
-  if (scale > 0)
+  if (scale > 0){
     surface->pending->scale = scale;
+    surface->pending->buffer_viewport.buffer.scale = scale;
+  }
   else
     g_warning ("Trying to set invalid buffer_scale of %d\n", scale);
 }
@@ -1730,6 +1806,7 @@ meta_wayland_shell_init (MetaWaylandCompositor *compositor)
   meta_wayland_xdg_shell_init (compositor);
   meta_wayland_wl_shell_init (compositor);
   meta_wayland_gtk_shell_init (compositor);
+  meta_wayland_viewporter_init (compositor);
 
   if (wl_global_create (compositor->wayland_display,
                         &wl_subcompositor_interface,

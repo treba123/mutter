@@ -86,6 +86,8 @@ mutter_built_sources += \
 	xdg-output-unstable-v1-server-protocol.h			\
 	xwayland-keyboard-grab-unstable-v1-protocol.c			\
 	xwayland-keyboard-grab-unstable-v1-server-protocol.h		\
+	viewporter-stable-protocol.c                       		\
+	viewporter-stable-server-protocol.h                		\
 	$(NULL)
 endif
 
@@ -453,6 +455,8 @@ libmutter_@LIBMUTTER_API_VERSION@_la_SOURCES +=	\
 	wayland/meta-wayland-inhibit-shortcuts-dialog.h	\
 	wayland/meta-xwayland-grab-keyboard.c  	\
 	wayland/meta-xwayland-grab-keyboard.h  	\
+	wayland/meta-wayland-viewporter.c	\
+	wayland/meta-wayland-viewporter.h	\
 	$(NULL)
 endif
 
@@ -744,7 +748,7 @@ endef
 	$(AM_V_GEN)$(WAYLAND_SCANNER) server-header $< $@
 %-protocol.c : $(WAYLAND_PROTOCOLS_DATADIR)/$$(call protostability,$$*)/$$(call protoname,$$*)/$$(call protoname,$$*).xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code $< $@
-%-server-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)/$$(call protostability,$$*)/$$(call protoname,$$*)/$$(call protoname,$$*).xml
+%-server-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)/$$(call protostability,$$*)/$$(call protoname,$$*)//$$(call protoname,$$*).xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) server-header $< $@
 %-protocol.c : $(srcdir)/wayland/protocol/%.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code $< $@
