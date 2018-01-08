@@ -82,6 +82,8 @@ mutter_built_sources += \
 	linux-dmabuf-unstable-v1-server-protocol.h				\
 	keyboard-shortcuts-inhibit-unstable-v1-protocol.c		\
 	keyboard-shortcuts-inhibit-unstable-v1-server-protocol.h	\
+	viewporter-stable-protocol.c					\
+	viewporter-stable-server-protocol.h				\
 	$(NULL)
 endif
 
@@ -430,6 +432,8 @@ libmutter_@LIBMUTTER_API_VERSION@_la_SOURCES +=	\
 	wayland/meta-wayland-inhibit-shortcuts.h \
 	wayland/meta-wayland-inhibit-shortcuts-dialog.c	\
 	wayland/meta-wayland-inhibit-shortcuts-dialog.h	\
+	wayland/meta-wayland-viewporter.c	\
+	wayland/meta-wayland-viewporter.h	\
 	$(NULL)
 endif
 
