@@ -207,6 +207,21 @@ send_output_events (struct wl_resource *resource,
                            logical_monitor->rect.width,
                            logical_monitor->rect.height,
                            (int32_t) (refresh_rate * 1000));
+      wl_output_send_mode (resource,
+                           0,
+                           1024,
+                           768,
+                           (int32_t) (refresh_rate * 1000));
+      wl_output_send_mode (resource,
+                           0,
+                           800,
+                           600,
+                           (int32_t) (refresh_rate * 1000));
+      wl_output_send_mode (resource,
+                           0,
+                           640,
+                           480,
+                           (int32_t) (refresh_rate * 1000));
       need_done = TRUE;
     }
 

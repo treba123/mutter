@@ -37,6 +37,7 @@
 #include "meta-texture-tower.h"
 
 #include "meta-cullable.h"
+#include <meta/errors.h>
 
 static void meta_shaped_texture_dispose  (GObject    *object);
 
@@ -323,6 +324,11 @@ paint_clipped_rectangle (CoglFramebuffer       *fb,
   y2 = rect->y + rect->height;
 
   if(src_rect->width > 0){
+    /*meta_warning("VIEWPORT: rect->x: %d, rect->y: %d, rect->width: %d, rect->height: %d, src_rect->x: %d, src_rect->y: %d, src_rect->width: %d, src_rect->height: %d\n",
+                 rect->x, rect->y, rect->width, rect->height,
+                 src_rect->x, src_rect->y, src_rect->width, src_rect->height);*/
+    /*meta_warning("VIEWPORT: dest_width: %g, dest_height: %g, tex_width: %g, tex_height: %g\n",
+                 dest_width, dest_height, tex_width, tex_height);*/
     coords[0] = ((float)rect->x * (float)src_rect->width  / dest_width  + (float)src_rect->x);
     coords[1] = ((float)rect->y * (float)src_rect->height / dest_height + (float)src_rect->y);
     coords[2] = (coords[0]      + (float)src_rect->width  / dest_width  * (float)rect->width);

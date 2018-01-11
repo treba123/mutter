@@ -2115,6 +2115,7 @@ meta_window_move_resize_request (MetaWindow *window,
                       "Treating resize request of legacy application %s as a "
                       "fullscreen request\n",
                       window->desc);
+          window->surface?meta_warning("VIEWPORT: xwayland client\n"):meta_warning("VIEWPORT: native X client\n");
           meta_window_make_fullscreen_internal (window);
         }
 
@@ -2457,8 +2458,10 @@ meta_window_x11_client_message (MetaWindow *window,
 
           make_fullscreen = (action == _NET_WM_STATE_ADD ||
                              (action == _NET_WM_STATE_TOGGLE && !window->fullscreen));
-          if (make_fullscreen && window->has_fullscreen_func)
+          if (make_fullscreen && window->has_fullscreen_func){
+            window->surface?meta_warning("VIEWPORT: xwayland client\n"):meta_warning("VIEWPORT: native X client\n");
             meta_window_make_fullscreen (window);
+          }
           else
             meta_window_unmake_fullscreen (window);
         }
