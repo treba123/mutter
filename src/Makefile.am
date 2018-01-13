@@ -734,17 +734,17 @@ backends/native/meta-default-modes.h: backends/native/gen-default-modes.py Makef
 
 .SECONDEXPANSION:
 
-define protostability
-$(shell echo $1 | sed 's/.*\(\<unstable\>\|\<stable\>\).*/\1/')
-endef
-
 define protoname
-$(shell echo $1 | sed 's/\([a-z\-]\+\)-[a-z]\+-v[0-9]\+/\1/')
+$(shell echo $1 | sed 's/\([a-z\-]\+\)-unstable-v[0-9]\+/\1/')
 endef
 
-%-protocol.c : $(WAYLAND_PROTOCOLS_DATADIR)/$$(call protostability,$$*)/$$(call protoname,$$*)/$$*.xml
+%-protocol.c : $(WAYLAND_PROTOCOLS_DATADIR)/unstable/$$(call protoname,$$*)/$$*.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code $< $@
-%-server-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)/$$(call protostability,$$*)/$$(call protoname,$$*)/$$*.xml
+%-server-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)/unstable/$$(call protoname,$$*)/$$*.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) server-header $< $@
+%-protocol.c : $(WAYLAND_PROTOCOLS_DATADIR)/stable/$$*/$$*.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code $< $@
+%-server-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)/stable/$$*/$$*.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) server-header $< $@
 %-protocol.c : $(srcdir)/wayland/protocol/%.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code $< $@
