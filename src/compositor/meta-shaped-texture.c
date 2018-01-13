@@ -92,8 +92,13 @@ struct _MetaShapedTexturePrivate
   cairo_region_t *clip_region;
   cairo_region_t *unobscured_region;
 
+  /* Viewport stuff */
+  cairo_rectangle_int_t viewport_src_rect;
+  guint viewport_dest_width, viewport_dest_height, viewport_scale;
+
   guint tex_width, tex_height;
   guint fallback_width, fallback_height;
+  guint dest_width, dest_height;
 
   guint create_mipmaps : 1;
 };
@@ -134,6 +139,7 @@ meta_shaped_texture_init (MetaShapedTexture *self)
   priv->mask_texture = NULL;
   priv->create_mipmaps = TRUE;
   priv->is_y_inverted = TRUE;
+  priv->viewport_scale = 1;
 }
 
 static void
@@ -149,8 +155,8 @@ set_unobscured_region (MetaShapedTexture *self,
 
       if (priv->texture)
         {
-          width = priv->tex_width;
-          height = priv->tex_height;
+          width = priv->dest_width;
+          height = priv->dest_height;
         }
       else
         {
@@ -300,20 +306,39 @@ static void
 paint_clipped_rectangle (CoglFramebuffer       *fb,
                          CoglPipeline          *pipeline,
                          cairo_rectangle_int_t *rect,
-                         ClutterActorBox       *alloc)
+                         ClutterActorBox       *alloc,
+                         cairo_rectangle_int_t *src_rect,
+                         float tex_width,
+                         float tex_height,
+                         float scale)
 {
   float coords[8];
   float x1, y1, x2, y2;
+  float dest_width = alloc->x2 - alloc->x1;
+  float dest_height = alloc->y2 - alloc->y1;
 
   x1 = rect->x;
   y1 = rect->y;
   x2 = rect->x + rect->width;
   y2 = rect->y + rect->height;
 
-  coords[0] = rect->x / (alloc->x2 - alloc->x1);
-  coords[1] = rect->y / (alloc->y2 - alloc->y1);
-  coords[2] = (rect->x + rect->width) / (alloc->x2 - alloc->x1);
-  coords[3] = (rect->y + rect->height) / (alloc->y2 - alloc->y1);
+  if(src_rect->width > 0){
+    coords[0] = ((float)rect->x * (float)src_rect->width  / dest_width  + (float)src_rect->x);
+    coords[1] = ((float)rect->y * (float)src_rect->height / dest_height + (float)src_rect->y);
+    coords[2] = (coords[0]      + (float)src_rect->width  / dest_width  * (float)rect->width);
+    coords[3] = (coords[1]      + (float)src_rect->height / dest_height * (float)rect->height);
+
+    coords[0] = coords[0] * scale / tex_width;
+    coords[1] = coords[1] * scale / tex_height;
+    coords[2] = coords[2] * scale / tex_width;
+    coords[3] = coords[3] * scale / tex_height;
+  }
+  else{
+    coords[0] = (float)rect->x / dest_width;
+    coords[1] = (float)rect->y / dest_height;
+    coords[2] = ((float)rect->x + (float)rect->width) / dest_width;
+    coords[3] = ((float)rect->y + (float)rect->height) / dest_height;
+  }
 
   coords[4] = coords[0];
   coords[5] = coords[1];
@@ -323,6 +348,35 @@ paint_clipped_rectangle (CoglFramebuffer       *fb,
   cogl_framebuffer_draw_multitextured_rectangle (fb, pipeline,
                                                  x1, y1, x2, y2,
                                                  &coords[0], 8);
+}
+
+static void
+update_size (MetaShapedTexture *stex)
+{
+  MetaShapedTexturePrivate *priv = stex->priv;
+  guint dest_width, dest_height;
+
+  if (priv->viewport_dest_width > 0){
+    dest_width = priv->viewport_dest_width * priv->viewport_scale;
+    dest_height = priv->viewport_dest_height * priv->viewport_scale;
+  }
+  else if(priv->viewport_src_rect.width > 0){
+    dest_width = priv->viewport_src_rect.width * priv->viewport_scale;
+    dest_height = priv->viewport_src_rect.height * priv->viewport_scale;
+  }
+  else{
+    dest_width = priv->tex_width;
+    dest_height = priv->tex_height;
+  }
+
+  if (priv->dest_width != dest_width ||
+      priv->dest_height != dest_height)
+    {
+      priv->dest_width = dest_width;
+      priv->dest_height = dest_height;
+      clutter_actor_queue_relayout (CLUTTER_ACTOR (stex));
+      g_signal_emit (stex, signals[SIZE_CHANGED], 0);
+    }
 }
 
 static void
@@ -359,8 +413,7 @@ set_cogl_texture (MetaShapedTexture *stex,
       priv->tex_width = width;
       priv->tex_height = height;
       meta_shaped_texture_set_mask_texture (stex, NULL);
-      clutter_actor_queue_relayout (CLUTTER_ACTOR (stex));
-      g_signal_emit (stex, signals[SIZE_CHANGED], 0);
+      update_size (stex);
     }
 
   /* NB: We don't queue a redraw of the actor here because we don't
@@ -377,7 +430,8 @@ meta_shaped_texture_paint (ClutterActor *actor)
 {
   MetaShapedTexture *stex = (MetaShapedTexture *) actor;
   MetaShapedTexturePrivate *priv = stex->priv;
-  guint tex_width, tex_height;
+  float tex_width, tex_height, scale;
+  guint dest_width, dest_height;
   guchar opacity;
   CoglContext *ctx;
   CoglFramebuffer *fb;
@@ -414,13 +468,16 @@ meta_shaped_texture_paint (ClutterActor *actor)
   if (paint_tex == NULL)
     return;
 
-  tex_width = priv->tex_width;
-  tex_height = priv->tex_height;
+  tex_width = (float)priv->tex_width;
+  tex_height = (float)priv->tex_height;
+  scale = (float)priv->viewport_scale;
+  dest_width = priv->dest_width;
+  dest_height = priv->dest_height;
 
-  if (tex_width == 0 || tex_height == 0) /* no contents yet */
+  if (dest_width == 0 || dest_height == 0) /* no contents yet */
     return;
 
-  cairo_rectangle_int_t tex_rect = { 0, 0, tex_width, tex_height };
+  cairo_rectangle_int_t tex_rect = { 0, 0, dest_width, dest_height };
 
   /* Use nearest-pixel interpolation if the texture is unscaled. This
    * improves performance, especially with software rendering.
@@ -428,7 +485,7 @@ meta_shaped_texture_paint (ClutterActor *actor)
 
   filter = COGL_PIPELINE_FILTER_LINEAR;
 
-  if (meta_actor_painting_untransformed (tex_width, tex_height, NULL, NULL))
+  if (meta_actor_painting_untransformed (dest_width, dest_height, NULL, NULL))
     filter = COGL_PIPELINE_FILTER_NEAREST;
 
   ctx = clutter_backend_get_cogl_context (clutter_get_default_backend ());
@@ -503,7 +560,13 @@ meta_shaped_texture_paint (ClutterActor *actor)
             {
               cairo_rectangle_int_t rect;
               cairo_region_get_rectangle (region, i, &rect);
-              paint_clipped_rectangle (fb, opaque_pipeline, &rect, &alloc);
+              paint_clipped_rectangle (fb,
+                                       opaque_pipeline,
+                                       &rect, &alloc,
+                                       &priv->viewport_src_rect,
+                                       tex_width,
+                                       tex_height,
+                                       scale);
             }
         }
 
@@ -556,16 +619,27 @@ meta_shaped_texture_paint (ClutterActor *actor)
               if (!gdk_rectangle_intersect (&tex_rect, &rect, &rect))
                 continue;
 
-              paint_clipped_rectangle (fb, blended_pipeline, &rect, &alloc);
+              paint_clipped_rectangle (fb,
+                                       blended_pipeline,
+                                       &rect,
+                                       &alloc,
+                                       &priv->viewport_src_rect,
+                                       tex_width,
+                                       tex_height,
+                                       scale);
             }
         }
       else
         {
           /* 3) blended_region is NULL. Do a full paint. */
-          cogl_framebuffer_draw_rectangle (fb, blended_pipeline,
-                                           0, 0,
-                                           alloc.x2 - alloc.x1,
-                                           alloc.y2 - alloc.y1);
+          paint_clipped_rectangle (fb,
+                                   blended_pipeline,
+                                   &tex_rect,
+                                   &alloc,
+                                   &priv->viewport_src_rect,
+                                   tex_width,
+                                   tex_height,
+                                   scale);
         }
     }
 
@@ -583,7 +657,7 @@ meta_shaped_texture_get_preferred_width (ClutterActor *self,
   guint width;
 
   if (priv->texture)
-    width = priv->tex_width;
+    width = priv->dest_width;
   else
     width = priv->fallback_width;
 
@@ -603,7 +677,7 @@ meta_shaped_texture_get_preferred_height (ClutterActor *self,
   guint height;
 
   if (priv->texture)
-    height = priv->tex_height;
+    height = priv->dest_height;
   else
     height = priv->fallback_height;
 
@@ -886,6 +960,24 @@ meta_shaped_texture_get_opaque_region (MetaShapedTexture *stex)
 {
   MetaShapedTexturePrivate *priv = stex->priv;
   return priv->opaque_region;
+}
+
+void
+meta_shaped_texture_set_viewport (MetaShapedTexture           *stex,
+                                  cairo_rectangle_int_t       *src_rect,
+                                  int                         dest_width,
+                                  int                         dest_height,
+                                  int                         scale)
+{
+  MetaShapedTexturePrivate *priv = stex->priv;
+
+  priv->viewport_src_rect = *src_rect;
+  priv->viewport_scale = scale;
+
+  priv->viewport_dest_width = dest_width;
+  priv->viewport_dest_height = dest_height;
+  update_size (stex);
+  clutter_actor_queue_redraw (CLUTTER_ACTOR (stex));
 }
 
 /**
