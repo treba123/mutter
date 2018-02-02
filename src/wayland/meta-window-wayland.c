@@ -679,6 +679,20 @@ meta_window_wayland_move_resize (MetaWindow        *window,
   MetaRectangle rect;
   MetaMoveResizeFlags flags;
 
+  if(window->surface)
+    {
+      if(window->surface->pending->buffer_viewport.surface.width > 0)
+        {
+          new_geom.width = window->surface->pending->buffer_viewport.surface.width;
+          new_geom.height = window->surface->pending->buffer_viewport.surface.height;
+        }
+      else if(window->surface->pending->buffer_viewport.buffer.src_rect.width > 0)
+        {
+          new_geom.width = window->surface->pending->buffer_viewport.buffer.src_rect.width;
+          new_geom.height = window->surface->pending->buffer_viewport.buffer.src_rect.height;
+        }
+    }
+
   /* new_geom is in the logical pixel coordinate space, but MetaWindow wants its
    * rects to represent what in turn will end up on the stage, i.e. we need to
    * scale new_geom to physical pixels given what buffer scale and texture scale

@@ -23,6 +23,7 @@
 #include "meta-wayland-versions.h"
 #include "meta-wayland-surface.h"
 #include "meta-wayland-private.h"
+#include "meta-window-wayland.h"
 #include "viewporter-server-protocol.h"
 
 static void
@@ -76,23 +77,41 @@ viewport_set_source (struct wl_client *client,
   int width = ceil(wl_fixed_to_double (src_width));
   int height = ceil(wl_fixed_to_double (src_height));
 
-  if(x >= 0 && y >= 0 && width > 0 && height > 0){
-    surface->pending->buffer_viewport.buffer.src_rect.x = x;
-    surface->pending->buffer_viewport.buffer.src_rect.y = y;
-    surface->pending->buffer_viewport.buffer.src_rect.width = width;
-    surface->pending->buffer_viewport.buffer.src_rect.height = height;
-    surface->pending->buffer_viewport.changed = TRUE;
-  } else if(x == -1 && y == -1 && width == -1 && height == -1){
-    surface->pending->buffer_viewport.buffer.src_rect.x = 0;
-    surface->pending->buffer_viewport.buffer.src_rect.y = 0;
-    surface->pending->buffer_viewport.buffer.src_rect.width = 0;
-    surface->pending->buffer_viewport.buffer.src_rect.height = 0;
-    surface->pending->buffer_viewport.changed = TRUE;
-  } else{
-    wl_resource_post_error (resource,
-                              WP_VIEWPORT_ERROR_BAD_VALUE,
-                              "all values must be either positive or -1");
-  }
+  if(x >= 0 && y >= 0 && width > 0 && height > 0)
+    {
+      surface->pending->buffer_viewport.changed = TRUE;
+      surface->pending->buffer_viewport.buffer.src_rect.x = x;
+      surface->pending->buffer_viewport.buffer.src_rect.y = y;
+      surface->pending->buffer_viewport.buffer.src_rect.width = width;
+      surface->pending->buffer_viewport.buffer.src_rect.height = height;
+
+      if(surface->pending->buffer_viewport.surface.width == 0)
+        {
+          if(surface->window)
+            {
+              MetaRectangle window_geometry = {0,0,0,0};
+              meta_window_wayland_move_resize (surface->window,
+                                           NULL,
+                                           window_geometry,
+                                           surface->pending->dx,
+                                           surface->pending->dy);
+            }
+        }
+    }
+  else if(x == -1 && y == -1 && width == -1 && height == -1)
+    {
+      surface->pending->buffer_viewport.buffer.src_rect.x = 0;
+      surface->pending->buffer_viewport.buffer.src_rect.y = 0;
+      surface->pending->buffer_viewport.buffer.src_rect.width = 0;
+      surface->pending->buffer_viewport.buffer.src_rect.height = 0;
+      surface->pending->buffer_viewport.changed = TRUE;
+    }
+  else
+    {
+      wl_resource_post_error (resource,
+                                WP_VIEWPORT_ERROR_BAD_VALUE,
+                                "all values must be either positive or -1");
+    }
 }
 
 static void
@@ -109,19 +128,35 @@ viewport_set_destination (struct wl_client *client,
     return;
   }
 
-  if(dst_width > 0 && dst_height > 0){
-    surface->pending->buffer_viewport.surface.width = dst_width;
-    surface->pending->buffer_viewport.surface.height = dst_height;
-    surface->pending->buffer_viewport.changed = TRUE;
-  } else if(dst_width == -1 && dst_height == -1){
-    surface->pending->buffer_viewport.surface.width = 0;
-    surface->pending->buffer_viewport.surface.height = 0;
-    surface->pending->buffer_viewport.changed = TRUE;
-  } else{
-    wl_resource_post_error (resource,
+  if(dst_width > 0 && dst_height > 0)
+    {
+      surface->pending->buffer_viewport.changed = TRUE;
+      surface->pending->buffer_viewport.surface.width = dst_width;
+      surface->pending->buffer_viewport.surface.height = dst_height;
+
+      if(surface->window)
+        {
+          MetaRectangle window_geometry = {0,0,0,0};
+          meta_window_wayland_move_resize (surface->window,
+                                           NULL,
+                                           window_geometry,
+                                           surface->pending->dx,
+                                           surface->pending->dy);
+        }
+
+    }
+  else if(dst_width == -1 && dst_height == -1)
+    {
+      surface->pending->buffer_viewport.surface.width = 0;
+      surface->pending->buffer_viewport.surface.height = 0;
+      surface->pending->buffer_viewport.changed = TRUE;
+    }
+  else
+    {
+      wl_resource_post_error (resource,
                               WP_VIEWPORT_ERROR_BAD_VALUE,
                               "all values must be either positive or -1");
-  }
+    }
 }
 
 static const struct wp_viewport_interface meta_wayland_viewport_interface = {
