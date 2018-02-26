@@ -38,6 +38,8 @@
 
 #include "meta-cullable.h"
 
+#include <meta/errors.h>
+
 static void meta_shaped_texture_dispose  (GObject    *object);
 
 static void meta_shaped_texture_paint (ClutterActor       *actor);
@@ -323,6 +325,7 @@ paint_clipped_rectangle (CoglFramebuffer       *fb,
   y2 = rect->y + rect->height;
 
   if(src_rect->width > 0){
+    //meta_warning("VIEWPORT: dw: %f, dh: %f\n", dest_width, dest_height);
     coords[0] = ((float)rect->x * (float)src_rect->width  / dest_width  + (float)src_rect->x);
     coords[1] = ((float)rect->y * (float)src_rect->height / dest_height + (float)src_rect->y);
     coords[2] = (coords[0]      + (float)src_rect->width  / dest_width  * (float)rect->width);
@@ -823,12 +826,23 @@ meta_shaped_texture_update_area (MetaShapedTexture *stex,
 {
   MetaShapedTexturePrivate *priv;
   cairo_region_t *unobscured_region;
-  const cairo_rectangle_int_t clip = { x, y, width, height };
+  //const cairo_rectangle_int_t clip = { x, y, width, height };
 
   priv = stex->priv;
 
   if (priv->texture == NULL)
     return FALSE;
+
+  // hack to work around xwayland damage. Should get fixed in xwayland
+  if(x == 0 && y == 0
+     && priv->viewport_src_rect.width == width
+     && priv->viewport_src_rect.height == height
+     && priv->viewport_dest_width > 0)
+    {
+      width = priv->viewport_dest_width;
+      height = priv->viewport_dest_height;
+    }
+  const cairo_rectangle_int_t clip = { x, y, width, height };
 
   meta_texture_tower_update_area (priv->paint_tower, x, y, width, height);
 
@@ -969,6 +983,7 @@ meta_shaped_texture_set_viewport (MetaShapedTexture           *stex,
                                   int                         dest_height,
                                   int                         scale)
 {
+  meta_warning("VIEWPORT: meta_shaped_texture_set_viewport\n");
   MetaShapedTexturePrivate *priv = stex->priv;
 
   priv->viewport_src_rect = *src_rect;

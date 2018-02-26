@@ -53,6 +53,10 @@
 #include "backends/meta-logical-monitor.h"
 #include "backends/x11/meta-backend-x11.h"
 
+//#include "wayland/meta-wayland-types.h"
+#include "wayland/meta-wayland-surface.h"
+#include <cairo.h>
+
 struct _MetaWindowX11Class
 {
   MetaWindowClass parent_class;
@@ -2085,7 +2089,7 @@ meta_window_move_resize_request (MetaWindow *window,
 
   if (flags & (META_MOVE_RESIZE_MOVE_ACTION | META_MOVE_RESIZE_RESIZE_ACTION))
     {
-      MetaRectangle rect, monitor_rect;
+      MetaRectangle rect, monitor_rect, window_rect;
 
       rect.x = x;
       rect.y = y;
@@ -2108,6 +2112,16 @@ meta_window_move_resize_request (MetaWindow *window,
           window->has_fullscreen_func &&
           !window->fullscreen)
         {
+
+          meta_window_get_frame_rect (window, &window_rect);
+          meta_warning ("VIEWPORT: rect %d,%d,%d,%d, window_rect %d,%d,%d,%d, has surface: %s\n",
+                        rect.x, rect.y, rect.width, rect.height,
+                        window_rect.x, window_rect.y, window_rect.width, window_rect.height,
+                        window->surface?"yes":"no");
+
+          rect.x = 171;
+          rect.y = 0;
+
           /*
           meta_topic (META_DEBUG_GEOMETRY,
           */
